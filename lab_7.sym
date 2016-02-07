@@ -1,1 +1,37 @@
-
+cforc      0041
+cr         000d
+debug      1000
+dtycycl    1008
+gen        2005
+getduty    202e
+ic_en      0003
+ic_int     2030
+iochmask   000c
+lf         000a
+num_pulses 100e
+num_secs   100a
+oc7d       0043
+oc7m       0042
+pps        1013
+printf     ee88
+setduty    202f
+t1_msk     0080
+tc2h       0054
+tc2l       0055
+tc3h       0056
+tc3l       0057
+tcnth      0044
+tcntl      0045
+tctl1      0048
+tctl2      0049
+tctl4      004b
+tctl4_in   0005
+ten        0080
+tflg1      004e
+tie        004c
+timerinit  2009
+tios       0040
+tios_in    000c
+tscr1      0046
+tscr2      004d
+tscr2_in   0000

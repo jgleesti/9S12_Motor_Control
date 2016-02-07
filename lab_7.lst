@@ -3,68 +3,138 @@ as12, an absolute assembler for Motorola MCU's, version 1.2h
 
                         ;===============================================================================
                         ; Jordan Lee, Logan Barnes
+                        ; Group 1
                         ; ECE 4730
                         ; 12.14.2015
                         ; Description: This program generates PWM signals to control dc motors. We are
-                        ; 		completing part one of lab 7.11 in "Microcontroller Theory and
-                        ;		Applications HC12 & S12". The learning lessons from this lab are
-                        ; 		to understand and use the input capture and output compare
-                        ;		systems to create the PWM signals.
+                        ;   completing part one of lab 7.11 in "Microcontroller Theory and Applications
+                        ;   HC12 & S12". The learning lessons from this lab are to understand and use
+                        ;   the input capture and output compare systems to create the PWM signals. We
+                        ;   will be using a 12V DC motor and a SN774410NE driver.
                         ;===============================================================================
                         
                         ;-------------------------------------------------------------------------------
                         ;Set constant variables
                         ;-------------------------------------------------------------------------------
+1000                               ORG          $1000
+0046                    TSCR1      EQU          $0046   ;Address for the TSCR1 register
+0080                    TEN        EQU          $80     ;TEN is bit 7 of TSCR1
+004d                    TSCR2      EQU          $004D   ;Timer system control register 2 location
+0000                    TSCR2_IN   EQU          $0000   ;Initialization value
+004c                    TIE        EQU          $004C   ;Address for the TIE register
+0003                    IC_EN      EQU          $03     ;Enable IC0, IC1 interrupts
+0048                    TCTL1      EQU          $0048   ;Upper 8 mode/level <- In order
+0049                    TCTL2      EQU          $0049   ;Address for the TCTL2 register
+004b                    TCTL4      EQU          $004B   ;Address for the TCTL4 register
+0005                    TCTL4_IN   EQU          $05     ;Initialize IC0 and IC1 to rising edge
+0044                    TCNTH      EQU          $0044
+0045                    TCNTL      EQU          $0045
+0041                    CFORC      EQU          $0041
+0042                    OC7M       EQU          $0042
+0043                    OC7D       EQU          $0043
+0054                    TC2H       EQU          $0054
+0055                    TC2L       EQU          $0055
+0056                    TC3H       EQU          $0056
+0057                    TC3L       EQU          $0057
+0080                    T1_MSK     EQU          $80
+000c                    IOCHMASK   EQU          $0C
+0040                    TIOS       EQU          $0040   ;Address of TIOS register
+000c                    TIOS_IN    EQU          $0C     ;Sets 0 and 1 to IC and sets 2 and 3 to OC
+004e                    TFLG1      EQU          $004E   ;The flags for timer system
+ee88                    PRINTF     EQU          $EE88   ;The 9S12 subroutine for printing to screen
+000d                    CR:        EQU          $0D     ;ASCII Return character
+000a                    LF:        EQU          $0A     ;ASCII linefeed character
                         
+                        
+1000 44 65 62 75 67     DEBUG      FCC          'Debug' ;A string to put to the screen for debug
+1005 0d 0a 00                      DB           CR,LF,0 ;purposes
+1008 7e ee              DTYCYCL    FDB          $7EEE   ;Reserve a word to set and read duty cycle
+100a 30                 NUM_SECS   FCB          $30     ;A place in memory to track number of seconds
+100b 0d 0a 00                      DB           CR,LF,0 ;Putting this in memory for printing purposes
+100e 00 00              NUM_PULSES FDB          $0000   ;Keep track of the number of pulses received by
+1010 0d 0a 00                      DB           CR,LF,0 ;IC registers
+1013 00 03              PPS        FDB          $0003   ;Keep two bbytes for pulses per second
                         
                         ;-------------------------------------------------------------------------------
                         ; Main Program
                         ; a. Use the output compare system to modify the duty cycle of the rectangular
-                        ;	output waveform
+                        ;        output waveform
                         ; b. Use the input capture funtion to monitor the number of pulses arriving at
-                        ;	an input capture pin and modify the output waveform accordingly
+                        ;        an input capture pin and modify the output waveform accordingly
                         ; c. Change the speed of the motor by adjusting the duty cycle of the output
-                        ;	waveform according to a specified speed profile
+                        ;        waveform according to a specified speed profile
                         ; d. Interface the S12 with 2 DC motors using the SN754410NE chip
-                        ;--------------------------------------------------------------------------------------
+                        ;-------------------------------------------------------------------------------
                         
-                        ; a -----------------------------------------------------------------------------------
-                        
-                        ; b -----------------------------------------------------------------------------------
-                        
-                        ; c -----------------------------------------------------------------------------------
-                        
-                        ; d -----------------------------------------------------------------------------------
-                        
-                        ;--------------------------------------------------------------------------------------
-                        ; OCINIT function: Initializes the Output compare system
-                        ;--------------------------------------------------------------------------------------
+2000                               ORG          $2000
+2000 cf 40 00                      LDS          #$4000               ;Initialize the stack
                         
                         
-                        ;--------------------------------------------------------------------------------------
-                        ; GETDUTY function: Gets desired duty cycle value and stores it in Accumulator A
-                        ;--------------------------------------------------------------------------------------
+                        ; a ----------------------------------------------------------------------------
+                        ;    Pins PT2 and PT3 are used to generate ouput signals
+                        ;    The TCNT takes 2.62144 ms to count from 0000 to FFFF. For a 15 second time
+                        ; period we need 5,722 pulses. 5 seconds will be sent for acceleration, 5
+                        ; seconds for constant speed and 5 seconds for deceleration. Each 5 second
+                        ; period will consist of 1,907 pulses of the TCNT. Acceleration starts at 5%
+                        ; duty cycle and goes until 20% duty cycle. A 5% duty cycle will have a count
+                        ; of 1.25x10^6 and a 20% duty cycle will have a count of 5.0x10^6.
+                        ; Step Two - Generate PWM signals
+2003 07 04                         BSR          TIMERINIT       ;Initialize timer system
+2005 07 28              GEN        BSR          SETDUTY         ;Set the duty cycle for each loop
+2007 20 fc                         BRA          GEN
+                        ; b ----------------------------------------------------------------------------
+                        ;    Pins PT0 and PT1 are used to monitor input signals generated by the OC2 and
+                        ; OC3 output compare systems
                         
+                        ; c ----------------------------------------------------------------------------
+                        ; The OC2 and OC3 output compare systems will control the left and right motors
                         
-                        ;--------------------------------------------------------------------------------------
-                        ; SETDUTY function: Sets the duty cycle according to value in Accumulator A
-                        ;--------------------------------------------------------------------------------------
+                        ; d ----------------------------------------------------------------------------
                         
+                        ;-------------------------------------------------------------------------------
+                        ; OCINIT subroutine: Initializes the Output compare system to go low on
+                        ;                    specified (DTY5) duty cycle of 5%.
+                        ;-------------------------------------------------------------------------------
+2009 79 00 4c           TIMERINIT  CLR          TIE                ;Disable interrupts
+200c 18 0b 00 00 4d                MOVB         #TSCR2_IN, TSCR2   ;Turn off overflow no prescaler
+2011 18 0b 05 00 4b                MOVB         #TCTL4_IN, TCTL4   ;Set IC0 and IC1 to rising edge
+2016 18 0b 0c 00 40                MOVB         #TIOS_IN, TIOS     ;Set pins 0,1 to IC and 2,3 to OC
+201b 18 03 20 30 3e 6e             MOVW         #IC_INT, $3E6E     ;Set vector for IC0,IC1 with DBUG12
+                                                                   ;interrupt vector map address
+2021 18 0b 80 00 46                MOVB         #TEN, TSCR1        ;Enable timer system with TEN bit
+2026 18 0b 03 00 4c                MOVB         #IC_EN, TIE        ;Enable IC0, IC1 interrupts
+202b 10 ef                         CLI
+202d 3d                            RTS
                         
-                        ;--------------------------------------------------------------------------------------
-                        ; ICINIT function: Initializes the Input Compare System
-                        ;--------------------------------------------------------------------------------------
+                        ;-------------------------------------------------------------------------------
+                        ; GETDUTY subroutine: Gets desired duty cycle value and stores it in DTYCYCL
+                        ;-------------------------------------------------------------------------------
+202e 3d                 GETDUTY    RTS
                         
+                        ;-------------------------------------------------------------------------------
+                        ; SETDUTY subroutine: Sets the duty cycle according to value in Accumulator A
+                        ;-------------------------------------------------------------------------------
+202f 3d                 SETDUTY    RTS
                         
-                        ;--------------------------------------------------------------------------------------
-                        ; GETIC function: Gets the values the Input Capture system should get
-                        ;--------------------------------------------------------------------------------------
+                        ;-------------------------------------------------------------------------------
+                        ; IC_INT subroutine: The ISR for an IC event
+                        ;-------------------------------------------------------------------------------
+2030 96 4e              IC_INT     LDAA         TFLG1          ;Clear the IC0 and IC1 Flags
+2032 8a 03                         ORAA         #$03
+2034 5a 4e                         STAA         TFLG1
+2036 cc 10 0e                      LDD          #NUM_PULSES
+2039 c3 00 01                      ADDD         #$01
+203c 7c 10 0e                      STD          NUM_PULSES
+203f cc 10 00                      LDD   #DEBUG                ;Display debug message
+2042 fe ee 88                      LDX   PRINTF
+2045 15 00                         JSR   0,X
+2047 0b                            RTI
                         
-                        
-                        ;--------------------------------------------------------------------------------------
-                        ; PRINT function: Prints the values to the computer monitor
-                        ;--------------------------------------------------------------------------------------
+                        ;-------------------------------------------------------------------------------
+                        ; PRINT subroutine: Prints the values to the computer monitor
+                        ;-------------------------------------------------------------------------------
+                                   END
 
-Executed: Mon Jan 25 00:02:44 2016
-Total cycles: 0, Total bytes: 0
+Executed: Sat Feb 06 18:37:29 2016
+Total cycles: 92, Total bytes: 93
 Total errors: 0, Total warnings: 0
