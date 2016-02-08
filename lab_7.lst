@@ -48,12 +48,24 @@ ee88                    PRINTF     EQU          $EE88   ;The 9S12 subroutine for
                         
 1000 44 65 62 75 67     DEBUG      FCC          'Debug' ;A string to put to the screen for debug
 1005 0d 0a 00                      DB           CR,LF,0 ;purposes
-1008 7e ee              DTYCYCL    FDB          $7EEE   ;Reserve a word to set and read duty cycle
-100a 30                 NUM_SECS   FCB          $30     ;A place in memory to track number of seconds
-100b 0d 0a 00                      DB           CR,LF,0 ;Putting this in memory for printing purposes
-100e 00 00              NUM_PULSES FDB          $0000   ;Keep track of the number of pulses received by
-1010 0d 0a 00                      DB           CR,LF,0 ;IC registers
-1013 00 03              PPS        FDB          $0003   ;Keep two bbytes for pulses per second
+                        
+                        ;Memory spots reserved for keeping track of the number of seconds that have
+                        ;passed and the characters to print to the screen.
+1008 54 68 65 20 74 6f  PRINT1     FCC          'The total running time is ' ;First part of the string
+     74 61 6c 20 72 75
+     6e 6e 69 6e 67 20
+     74 69 6d 65 20 69
+     73 20
+1022 02                 SEC_TEN    FCB          $02     ;A place in memory to keep track of the tens
+                                                        ;position when counting seconds
+1023 30                 SEC_ONE    FCB          $30     ;Keep track of the ones right after the tens
+1024 20 73 65 63 2e     PRINT2     FCC          ' sec.' ;End of the print statement
+1029 0d 0a 00                      DB           CR,LF,0 ;Carriage return, line feed and end of string
+                                                        ;marker
+                                   
+102c 00 00              NUM_PULSES FDB          $0000   ;Keep track of the number of pulses received
+102e 01 f4              PPS        FDB          $01F4   ;Keep two bytes for pulses per second
+1030 7e ee              DTYCYCL    FDB          $7EEE   ;Reserve a word to set and read duty cycle
                         
                         ;-------------------------------------------------------------------------------
                         ; Main Program
@@ -122,19 +134,37 @@ ee88                    PRINTF     EQU          $EE88   ;The 9S12 subroutine for
 2030 96 4e              IC_INT     LDAA         TFLG1          ;Clear the IC0 and IC1 Flags
 2032 8a 03                         ORAA         #$03
 2034 5a 4e                         STAA         TFLG1
-2036 cc 10 0e                      LDD          #NUM_PULSES
-2039 c3 00 01                      ADDD         #$01
-203c 7c 10 0e                      STD          NUM_PULSES
-203f cc 10 00                      LDD   #DEBUG                ;Display debug message
-2042 fe ee 88                      LDX   PRINTF
-2045 15 00                         JSR   0,X
-2047 0b                            RTI
+2036 fc 10 2c                      LDD          NUM_PULSES     ;Check the number of pulses received so
+2039 c3 00 01                      ADDD         #01            ;far and add 1 to it
+203c 7c 10 2c                      STD          NUM_PULSES     ;Store the new number of pulses
+203f fe 10 2e                      LDX          PPS            ;Get the number of pulses in a second and
+2042 18 10                         IDIV                        ;divide total pulses by that number
+2044 8c 00 00                      CPD          #0000          ;If there is no remainder, then we are at
+2047 27 01                         BEQ          IS_SEC         ;the second mark
+2049 0b                            RTI                         ;if there is a remainder continue program
+204a 16 20 4e           IS_SEC     JSR          PRINT          ;Call the print subroutine to print out
+204d 0b                            RTI                         ;the number of seconds and return from
+                                                               ;the interrupt
                         
                         ;-------------------------------------------------------------------------------
                         ; PRINT subroutine: Prints the values to the computer monitor
                         ;-------------------------------------------------------------------------------
+204e b6 10 23           PRINT      LDAA  SEC_ONE       ;Get current number of seconds in ones position
+2051 8b 01                         ADDA  #01           ;Add a second to the ones position
+2053 81 3a                         CMPA  #$3A          ;Check to see if it is the character above '9'
+2055 27 05                         BEQ   ADD_TEN       ;and if it is go to the ADD_TEN section
+2057 7a 10 23                      STAA  SEC_ONE       ;If not store the new added second to ones
+205a 20 0a                         BRA   PRNT_SEC      ;position and continue to print
+205c 86 31              ADD_TEN    LDAA  #$31          ;Put a '1' in the tens position
+205e 7a 10 22                      STAA  SEC_TEN
+2061 86 30                         LDAA  #$30          ;Put a '0' in the ones position
+2063 7a 10 23                      STAA  SEC_ONE
+2066 cc 10 08           PRNT_SEC   LDD   #PRINT1       ;Display the message that tracks how many seconds
+2069 fe ee 88                      LDX   PRINTF        ;have passed based on the number of pulses
+206c 15 00                         JSR   0,X
+206e 3d                            RTS
                                    END
 
-Executed: Sat Feb 06 18:37:29 2016
-Total cycles: 92, Total bytes: 93
+Executed: Sun Feb 07 13:04:26 2016
+Total cycles: 164, Total bytes: 161
 Total errors: 0, Total warnings: 0

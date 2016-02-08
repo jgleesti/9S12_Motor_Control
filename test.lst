@@ -1,0 +1,30 @@
+
+as12, an absolute assembler for Motorola MCU's, version 1.2h
+
+1000                                    ORG $1000
+                        
+000d                    CR:             EQU   $0D        ;Return carrier in ascii
+000a                    LF:             EQU   $0A        ;Linefeed in ascii
+                        
+1000 44 65 62 75 67     DEBUG              FCC     'Debug' ;A string to put to the screen for debug
+1005 0d 0a 00                              DB      CR,LF,0 ;purposes
+1008 54 68 65 20 74 6f  PRINT1             FCC     'The total running time is ' ;First part of the string
+     74 61 6c 20 72 75
+     6e 6e 69 6e 67 20
+     74 69 6d 65 20 69
+     73 20
+1022 30                 NUM_SECS           FCB     $30     ;A place in memory to track number of seconds
+1023 20 73 65 63 2e     PRINT2             FCC     ' sec.'  ;2nd part of string to print
+1028 0d 0a 00                              DB      CR,LF,0
+                                           
+2000                                       ORG         $2000
+2000 fc 10 22           LOOP               LDD     NUM_SECS
+2003 c3 00 01                              ADDD    #01
+2006 7c 10 22                              STD     NUM_SECS
+2009 20 f5                                 BRA     LOOP
+                                           
+                                           END
+
+Executed: Sun Feb 07 12:08:35 2016
+Total cycles: 13, Total bytes: 54
+Total errors: 0, Total warnings: 0

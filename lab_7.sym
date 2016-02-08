@@ -1,19 +1,26 @@
-cforc      0041
+add_ten    205c
+cforc      0041
 cr         000d
 debug      1000
-dtycycl    1008
+dtycycl    1030
 gen        2005
 getduty    202e
 ic_en      0003
 ic_int     2030
 iochmask   000c
+is_sec     204a
 lf         000a
-num_pulses 100e
-num_secs   100a
+num_pulses 102c
 oc7d       0043
 oc7m       0042
-pps        1013
+pps        102e
+print      204e
+print1     1008
+print2     1024
 printf     ee88
+prnt_sec   2066
+sec_one    1023
+sec_ten    1022
 setduty    202f
 t1_msk     0080
 tc2h       0054

@@ -1,0 +1,7 @@
+cr         000d
+debug      1000
+lf         000a
+loop       2000
+num_secs   1022
+print1     1008
+print2     1023

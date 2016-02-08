@@ -45,12 +45,20 @@ LF:        EQU          $0A     ;ASCII linefeed character
 
 DEBUG      FCC          'Debug' ;A string to put to the screen for debug
            DB           CR,LF,0 ;purposes
+
+;Memory spots reserved for keeping track of the number of seconds that have
+;passed and the characters to print to the screen.
+PRINT1     FCC          'The total running time is ' ;First part of the string
+SEC_TEN    FCB          $02     ;A place in memory to keep track of the tens
+                                ;position when counting seconds
+SEC_ONE    FCB          $30     ;Keep track of the ones right after the tens
+PRINT2     FCC          ' sec.' ;End of the print statement
+           DB           CR,LF,0 ;Carriage return, line feed and end of string
+                                ;marker
+           
+NUM_PULSES FDB          $0000   ;Keep track of the number of pulses received
+PPS        FDB          $01F4   ;Keep two bytes for pulses per second
 DTYCYCL    FDB          $7EEE   ;Reserve a word to set and read duty cycle
-NUM_SECS   FCB          $30     ;A place in memory to track number of seconds
-           DB           CR,LF,0 ;Putting this in memory for printing purposes
-NUM_PULSES FDB          $0000   ;Keep track of the number of pulses received by
-           DB           CR,LF,0 ;IC registers
-PPS        FDB          $0003   ;Keep two bbytes for pulses per second
 
 ;-------------------------------------------------------------------------------
 ; Main Program
@@ -119,15 +127,33 @@ SETDUTY    RTS
 IC_INT     LDAA         TFLG1          ;Clear the IC0 and IC1 Flags
            ORAA         #$03
            STAA         TFLG1
-           LDD          #NUM_PULSES
-           ADDD         #$01
-           STD          NUM_PULSES
-           LDD   #DEBUG                ;Display debug message
-           LDX   PRINTF
-           JSR   0,X
-           RTI
+           LDD          NUM_PULSES     ;Check the number of pulses received so
+           ADDD         #01            ;far and add 1 to it
+           STD          NUM_PULSES     ;Store the new number of pulses
+           LDX          PPS            ;Get the number of pulses in a second and
+           IDIV                        ;divide total pulses by that number
+           CPD          #0000          ;If there is no remainder, then we are at
+           BEQ          IS_SEC         ;the second mark
+           RTI                         ;if there is a remainder continue program
+IS_SEC     JSR          PRINT          ;Call the print subroutine to print out
+           RTI                         ;the number of seconds and return from
+                                       ;the interrupt
 
 ;-------------------------------------------------------------------------------
 ; PRINT subroutine: Prints the values to the computer monitor
 ;-------------------------------------------------------------------------------
+PRINT      LDAA  SEC_ONE       ;Get current number of seconds in ones position
+           ADDA  #01           ;Add a second to the ones position
+           CMPA  #$3A          ;Check to see if it is the character above '9'
+           BEQ   ADD_TEN       ;and if it is go to the ADD_TEN section
+           STAA  SEC_ONE       ;If not store the new added second to ones
+           BRA   PRNT_SEC      ;position and continue to print
+ADD_TEN    LDAA  #$31          ;Put a '1' in the tens position
+           STAA  SEC_TEN
+           LDAA  #$30          ;Put a '0' in the ones position
+           STAA  SEC_ONE
+PRNT_SEC   LDD   #PRINT1       ;Display the message that tracks how many seconds
+           LDX   PRINTF        ;have passed based on the number of pulses
+           JSR   0,X
+           RTS
            END
