@@ -57,10 +57,8 @@ PRINT2     FCC          ' sec.' ;End of the print statement
                                 ;marker
            
 NUM_PULSES FDB          $0000   ;Keep track of the number of pulses received
-PPS        FDB          $01F4   ;Keep two bytes for pulses per second
-DTYCYCL    FDB          $7EEE   ;Reserve a word to set and read duty cycle
-MTR_SEL    FCB          $00     ;Keep track of whether the motor should be
-                                ;accelerating, staying constant or decelerating
+PPS        FDB          $002E   ;Keep two bytes for pulses per second
+DTYCYCL    FDB          $0CCD   ;Reserve a word to set and read duty cycle
 
 ;-------------------------------------------------------------------------------
 ; Main Program
@@ -125,8 +123,8 @@ IC_INT     LDAA         TFLG1          ;Clear the IC0 and IC1 Flags
            ORAA         #$03
            STAA         TFLG1
            LDAA         SEC_TEN        ;Check the ten's spot to see if we are
-           CMPA		#$02           ;in the first ten seconds. If we aren't
-           BNE		DCL            ;then we have to be decelerating
+           CMPA         #$02           ;in the first ten seconds. If we aren't
+           BNE          DCL            ;then we have to be decelerating
            LDAA         SEC_ONE        ;We are in the first ten seconds. Check
            CMPA         #$35           ;if we are in the first five seconds and
            BLT          ACC            ;accelerate if we are.
@@ -180,7 +178,7 @@ GO         RTS
 ;                     cycle by a specified amount.
 ;-------------------------------------------------------------------------------
 MTR_ACC    LDAA #$0
-	   RTS
+           RTS
 
 ;-------------------------------------------------------------------------------
 ; MTR_CONST subroutine: Gets called every TCNT pulse for seconds 5-10. This

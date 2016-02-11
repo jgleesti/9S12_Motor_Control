@@ -64,10 +64,8 @@ ee88                    PRINTF     EQU          $EE88   ;The 9S12 subroutine for
                                                         ;marker
                                    
 102c 00 00              NUM_PULSES FDB          $0000   ;Keep track of the number of pulses received
-102e 01 f4              PPS        FDB          $01F4   ;Keep two bytes for pulses per second
-1030 7e ee              DTYCYCL    FDB          $7EEE   ;Reserve a word to set and read duty cycle
-1032 00                 MTR_SEL    FCB          $00     ;Keep track of whether the motor should be
-                                                        ;accelerating, staying constant or decelerating
+102e 00 2e              PPS        FDB          $002E   ;Keep two bytes for pulses per second
+1030 0c cd              DTYCYCL    FDB          $0CCD   ;Reserve a word to set and read duty cycle
                         
                         ;-------------------------------------------------------------------------------
                         ; Main Program
@@ -132,8 +130,8 @@ ee88                    PRINTF     EQU          $EE88   ;The 9S12 subroutine for
 2032 8a 03                         ORAA         #$03
 2034 5a 4e                         STAA         TFLG1
 2036 b6 10 22                      LDAA         SEC_TEN        ;Check the ten's spot to see if we are
-2039 81 02                         CMPA		#$02           ;in the first ten seconds. If we aren't
-203b 26 09                         BNE		DCL            ;then we have to be decelerating
+2039 81 02                         CMPA         #$02           ;in the first ten seconds. If we aren't
+203b 26 09                         BNE          DCL            ;then we have to be decelerating
 203d b6 10 23                      LDAA         SEC_ONE        ;We are in the first ten seconds. Check
 2040 81 35                         CMPA         #$35           ;if we are in the first five seconds and
 2042 2d 07                         BLT          ACC            ;accelerate if we are.
@@ -187,7 +185,7 @@ ee88                    PRINTF     EQU          $EE88   ;The 9S12 subroutine for
                         ;                     cycle by a specified amount.
                         ;-------------------------------------------------------------------------------
 209c 86 00              MTR_ACC    LDAA #$0
-209e 3d                 	   RTS
+209e 3d                            RTS
                         
                         ;-------------------------------------------------------------------------------
                         ; MTR_CONST subroutine: Gets called every TCNT pulse for seconds 5-10. This
@@ -204,6 +202,6 @@ ee88                    PRINTF     EQU          $EE88   ;The 9S12 subroutine for
                         
                                    END
 
-Executed: Wed Feb 10 00:51:42 2016
-Total cycles: 243, Total bytes: 212
+Executed: Thu Feb 11 15:04:59 2016
+Total cycles: 243, Total bytes: 211
 Total errors: 0, Total warnings: 0

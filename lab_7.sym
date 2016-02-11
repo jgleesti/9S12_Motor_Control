@@ -19,7 +19,6 @@ lf         000a
 mtr_acc    209c
 mtr_const  209f
 mtr_dec    20a0
-mtr_sel    1032
 num_pulses 102c
 oc7d       0043
 oc7m       0042
