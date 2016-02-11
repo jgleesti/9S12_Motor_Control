@@ -30,13 +30,18 @@ as12, an absolute assembler for Motorola MCU's, version 1.2h
 0044                    TCNTH      EQU          $0044
 0045                    TCNTL      EQU          $0045
 0041                    CFORC      EQU          $0041
-0042                    OC7M       EQU          $0042
-0043                    OC7D       EQU          $0043
+0042                    OC7M       EQU          $0042   ;Address for OC7M
+000c                    OC7MMSK    EQU          $0C
+0043                    OC7D       EQU          $0043   ;Address for OC7D
+000c                    OC7DMSK    EQU          $0C
 0054                    TC2H       EQU          $0054
 0055                    TC2L       EQU          $0055
 0056                    TC3H       EQU          $0056
 0057                    TC3L       EQU          $0057
+005e                    TC7H       EQU          $005E
+005f                    TC7L       EQU          $005F
 0080                    T1_MSK     EQU          $80
+004f                    TFLG2      EQU          $004F   ;Address of the timer flag 2
 000c                    IOCHMASK   EQU          $0C
 0040                    TIOS       EQU          $0040   ;Address of TIOS register
 000c                    TIOS_IN    EQU          $0C     ;Sets 0 and 1 to IC and sets 2 and 3 to OC
@@ -44,6 +49,7 @@ as12, an absolute assembler for Motorola MCU's, version 1.2h
 ee88                    PRINTF     EQU          $EE88   ;The 9S12 subroutine for printing to screen
 000d                    CR:        EQU          $0D     ;ASCII Return character
 000a                    LF:        EQU          $0A     ;ASCII linefeed character
+                        
                         
                         
 1000 44 65 62 75 67     DEBUG      FCC          'Debug' ;A string to put to the screen for debug
@@ -62,10 +68,11 @@ ee88                    PRINTF     EQU          $EE88   ;The 9S12 subroutine for
 1024 20 73 65 63 2e     PRINT2     FCC          ' sec.' ;End of the print statement
 1029 0d 0a 00                      DB           CR,LF,0 ;Carriage return, line feed and end of string
                                                         ;marker
-                                   
+                        
 102c 00 00              NUM_PULSES FDB          $0000   ;Keep track of the number of pulses received
 102e 00 2e              PPS        FDB          $002E   ;Keep two bytes for pulses per second
-1030 0c cd              DTYCYCL    FDB          $0CCD   ;Reserve a word to set and read duty cycle
+1030 0c cd              DUTY       FDB          $0CCD   ;Reserve a word to set and read duty cycle
+1032 2b                 STEP       FCB          $2B     ;Keep the amount the duty cycle is inc/dec
                         
                         ;-------------------------------------------------------------------------------
                         ; Main Program
@@ -105,6 +112,8 @@ ee88                    PRINTF     EQU          $EE88   ;The 9S12 subroutine for
 2009 79 00 4c           TIMERINIT  CLR          TIE                ;Disable interrupts
 200c 18 0b 00 00 4d                MOVB         #TSCR2_IN, TSCR2   ;Turn off overflow no prescaler
 2011 18 0b 05 00 4b                MOVB         #TCTL4_IN, TCTL4   ;Set IC0 and IC1 to rising edge
+                                   ;Set OC2 and OC3 to low
+                        
 2016 18 0b 0c 00 40                MOVB         #TIOS_IN, TIOS     ;Set pins 0,1 to IC and 2,3 to OC
 201b 18 03 20 30 3e 6e             MOVW         #IC_INT, $3E6E     ;Set vector for IC0,IC1 with DBUG12
                                                                    ;interrupt vector map address
@@ -136,11 +145,11 @@ ee88                    PRINTF     EQU          $EE88   ;The 9S12 subroutine for
 2040 81 35                         CMPA         #$35           ;if we are in the first five seconds and
 2042 2d 07                         BLT          ACC            ;accelerate if we are.
 2044 20 0a                         BRA          CONST          ;5-10 second range means constant speed
-2046 16 20 a0           DCL        JSR          MTR_DEC        ;Decelerate the motors
+2046 16 20 aa           DCL        JSR          MTR_DEC        ;Decelerate the motors
 2049 20 08                         BRA          CHCK_SEC
 204b 16 20 9c           ACC        JSR          MTR_ACC        ;Accelerate the motors
 204e 20 03                         BRA          CHCK_SEC
-2050 16 20 9f           CONST      JSR          MTR_CONST      ;Keep motors constant
+2050 16 20 a6           CONST      JSR          MTR_CONST      ;Keep motors constant
 2053 fc 10 2c           CHCK_SEC   LDD          NUM_PULSES     ;Check the number of pulses received so
 2056 c3 00 01                      ADDD         #01            ;far and add 1 to it
 2059 7c 10 2c                      STD          NUM_PULSES     ;Store the new number of pulses
@@ -184,24 +193,34 @@ ee88                    PRINTF     EQU          $EE88   ;The 9S12 subroutine for
                         ;                     this subroutine is called it increases the motor duty
                         ;                     cycle by a specified amount.
                         ;-------------------------------------------------------------------------------
-209c 86 00              MTR_ACC    LDAA #$0
-209e 3d                            RTS
+209c 96 54              MTR_ACC    LDAA  TC2H     ;Get the current Duty cycle and add 2B to it to
+lab_7.asm:190: Warning - Value too large and has been masked to 0xFF
+209e 8b 32                         ADDA  #STEP    ;increase from 5% to 20% over five seconds
+20a0 5a 54                         STAA  TC2H
+20a2 79 00 4f                      CLR   TFLG2    ;Reset the overflow flag
+20a5 3d                 	   RTS
                         
                         ;-------------------------------------------------------------------------------
                         ; MTR_CONST subroutine: Gets called every TCNT pulse for seconds 5-10. This
                         ;                      subroutine keeps the motor's duty cycle at the same rate.
                         ;-------------------------------------------------------------------------------
-209f 3d                 MTR_CONST  RTS
+20a6 79 00 4f           MTR_CONST  CLR   TFLG2    ;Reset the overflow flag
+20a9 3d                 	   RTS
                         
                         ;-------------------------------------------------------------------------------
                         ; MTR_DEC subroutine: Gets called every TCNT pulse for seconds 10-15. This
                         ;                     subroutine decreases the motor's duty cycle by a specified
                         ;                     amount.
                         ;-------------------------------------------------------------------------------
-20a0 3d                 MTR_DEC    RTS
+20aa 96 54              MTR_DEC    LDAA  TC2H      ;Get the current Duty cycle and add 2B to it to
+lab_7.asm:208: Warning - Value too large and has been masked to 0xFF
+20ac 80 32                         SUBA  #STEP     ;decrease from 20% to 5% over five seconds
+20ae 5a 54                         STAA  TC2H
+20b0 79 00 4f                      CLR   TFLG2     ;Reset the overflow flag
+20b3 3d                 	   RTS
                         
                                    END
 
-Executed: Thu Feb 11 15:04:59 2016
-Total cycles: 243, Total bytes: 211
-Total errors: 0, Total warnings: 0
+Executed: Thu Feb 11 15:44:36 2016
+Total cycles: 266, Total bytes: 231
+Total errors: 0, Total warnings: 2

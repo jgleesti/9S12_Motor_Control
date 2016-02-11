@@ -7,7 +7,7 @@ cr         000d
 dcl        2046
 debug      1000
 done       2099
-dtycycl    1030
+duty       1030
 gen        2005
 getduty    202e
 go         209b
@@ -17,11 +17,13 @@ iochmask   000c
 is_sec     2067
 lf         000a
 mtr_acc    209c
-mtr_const  209f
-mtr_dec    20a0
+mtr_const  20a6
+mtr_dec    20aa
 num_pulses 102c
 oc7d       0043
+oc7dmsk    000c
 oc7m       0042
+oc7mmsk    000c
 pps        102e
 print      206b
 print1     1008
@@ -31,11 +33,14 @@ prnt_sec   2083
 sec_one    1023
 sec_ten    1022
 setduty    202f
+step       1032
 t1_msk     0080
 tc2h       0054
 tc2l       0055
 tc3h       0056
 tc3l       0057
+tc7h       005e
+tc7l       005f
 tcnth      0044
 tcntl      0045
 tctl1      0048
@@ -44,6 +49,7 @@ tctl4      004b
 tctl4_in   0005
 ten        0080
 tflg1      004e
+tflg2      004f
 tie        004c
 timerinit  2009
 tios       0040

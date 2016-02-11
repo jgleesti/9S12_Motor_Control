@@ -27,13 +27,18 @@ TCTL4_IN   EQU          $05     ;Initialize IC0 and IC1 to rising edge
 TCNTH      EQU          $0044
 TCNTL      EQU          $0045
 CFORC      EQU          $0041
-OC7M       EQU          $0042
-OC7D       EQU          $0043
+OC7M       EQU          $0042   ;Address for OC7M
+OC7MMSK    EQU          $0C
+OC7D       EQU          $0043   ;Address for OC7D
+OC7DMSK    EQU          $0C
 TC2H       EQU          $0054
 TC2L       EQU          $0055
 TC3H       EQU          $0056
 TC3L       EQU          $0057
+TC7H       EQU          $005E
+TC7L       EQU          $005F
 T1_MSK     EQU          $80
+TFLG2      EQU          $004F   ;Address of the timer flag 2
 IOCHMASK   EQU          $0C
 TIOS       EQU          $0040   ;Address of TIOS register
 TIOS_IN    EQU          $0C     ;Sets 0 and 1 to IC and sets 2 and 3 to OC
@@ -41,6 +46,7 @@ TFLG1      EQU          $004E   ;The flags for timer system
 PRINTF     EQU          $EE88   ;The 9S12 subroutine for printing to screen
 CR:        EQU          $0D     ;ASCII Return character
 LF:        EQU          $0A     ;ASCII linefeed character
+
 
 
 DEBUG      FCC          'Debug' ;A string to put to the screen for debug
@@ -55,10 +61,11 @@ SEC_ONE    FCB          $30     ;Keep track of the ones right after the tens
 PRINT2     FCC          ' sec.' ;End of the print statement
            DB           CR,LF,0 ;Carriage return, line feed and end of string
                                 ;marker
-           
+
 NUM_PULSES FDB          $0000   ;Keep track of the number of pulses received
 PPS        FDB          $002E   ;Keep two bytes for pulses per second
-DTYCYCL    FDB          $0CCD   ;Reserve a word to set and read duty cycle
+DUTY       FDB          $0CCD   ;Reserve a word to set and read duty cycle
+STEP       FCB          $2B     ;Keep the amount the duty cycle is inc/dec
 
 ;-------------------------------------------------------------------------------
 ; Main Program
@@ -98,6 +105,8 @@ GEN        BSR          SETDUTY         ;Set the duty cycle for each loop
 TIMERINIT  CLR          TIE                ;Disable interrupts
            MOVB         #TSCR2_IN, TSCR2   ;Turn off overflow no prescaler
            MOVB         #TCTL4_IN, TCTL4   ;Set IC0 and IC1 to rising edge
+           ;Set OC2 and OC3 to low
+
            MOVB         #TIOS_IN, TIOS     ;Set pins 0,1 to IC and 2,3 to OC
            MOVW         #IC_INT, $3E6E     ;Set vector for IC0,IC1 with DBUG12
                                            ;interrupt vector map address
@@ -177,20 +186,28 @@ GO         RTS
 ;                     this subroutine is called it increases the motor duty
 ;                     cycle by a specified amount.
 ;-------------------------------------------------------------------------------
-MTR_ACC    LDAA #$0
-           RTS
+MTR_ACC    LDAA  TC2H     ;Get the current Duty cycle and add 2B to it to
+           ADDA  #STEP    ;increase from 5% to 20% over five seconds
+           STAA  TC2H
+           CLR   TFLG2    ;Reset the overflow flag
+	   RTS
 
 ;-------------------------------------------------------------------------------
 ; MTR_CONST subroutine: Gets called every TCNT pulse for seconds 5-10. This
 ;                      subroutine keeps the motor's duty cycle at the same rate.
 ;-------------------------------------------------------------------------------
-MTR_CONST  RTS
+MTR_CONST  CLR   TFLG2    ;Reset the overflow flag
+	   RTS
 
 ;-------------------------------------------------------------------------------
 ; MTR_DEC subroutine: Gets called every TCNT pulse for seconds 10-15. This
 ;                     subroutine decreases the motor's duty cycle by a specified
 ;                     amount.
 ;-------------------------------------------------------------------------------
-MTR_DEC    RTS
+MTR_DEC    LDAA  TC2H      ;Get the current Duty cycle and add 2B to it to
+           SUBA  #STEP     ;decrease from 20% to 5% over five seconds
+           STAA  TC2H
+           CLR   TFLG2     ;Reset the overflow flag
+	   RTS
 
            END
