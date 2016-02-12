@@ -1,25 +1,124 @@
+
 ; This is a CODE SNIPPET for configuring and utilizing the OC system to modify the duty cycle of a rectangular output waveform.
 
-TSCR1		EQU 		$0046		; 
-TSCR2		EQU			$004D		; DON'T MESS WITH BIT 3 ($08) IT RESETS THE FRC!
-									; BITS [2:0] ARE THE PRESCALER BITS.
-TCTL1		EQU			$0048		; TIMER CONTROL REG 1 (UPPER 8 MODE/LEVEL) <- IN ORDER
-TCTL2		EQU			$0049		; TIMER CONTROL REG 2 (LOWER 8 M/L)
-TCNTH		EQU			$0044		; TIMER COUNTER HIGH (UPPER 8 BITS)
-TCNTL		EQU			$0045		; TIMER COUNTER LOW (LOWER 8 BITS)
-CFORC		EQU			$0041		; TIM OC FORCE REG. BASICALLY FORCES AN OUPUT SIGNAL! COOL. -USE THIS?
-OC7M		EQU			$0042		; FORCES PORT T PIN TO BE OUTPUT. REGARDLESS OF DDRT SETTINGS.
-OC7D		EQU			$0043		; SEND BITS CORRESPONDING TO SET BITS OF OC7M TO TIMER PORT PINS.
-TIE			EQU			$004C		; ENABLES INTERRUPTS ON THE SPECIFIED CHANNEL.
-TC2H		EQU			$0054		; -------------------------------------------
-TC2L		EQU			$0055		; THESE REGISTERS LATCH THE VALUE OF THE FRC, BOTH DURING AN IC EVENT, 
-TC3H		EQU			$0056		; AND CAN TRIGGER AN OC EVENT! :)
-TC3L		EQU			$0057		; -------------------------------------------
+TIOS        EQU         $0040
+CFORC       EQU         $0041			; TIM OC FORCE REG. BASICALLY FORCES AN OUPUT SIGNAL! COOL. -USE THIS?
+OC7M        EQU	        $0042			; FORCES PORT T PIN TO BE OUTPUT. REGARDLESS OF DDRT SETTINGS.
+OC7D        EQU         $0043			; SEND BITS CORRESPONDING TO SET BITS OF OC7M TO TIMER PORT PINS.
+TCNT        EQU         $0044           ; SAME AS TCNTH, WE CAN JUST USE THIS FOR FETCHING ALL 16 BITS.
+;TCNTH       EQU         $0044			; TIMER COUNTER HIGH (UPPER 8 BITS)
+TCNTL       EQU         $0045			; TIMER COUNTER LOW (LOWER 8 BITS)
+
+TSCR1       EQU         $0046			; BIT 7 IS TEN (TIMER ENABLE) 1000 0000 TO ENABLE.
+TSCR2       EQU         $004D			; DON'T MESS WITH BIT 3 ($08) IT RESETS THE FRC!
+										; BITS [2:0] ARE THE PRESCALER BITS.
+TCTL1       EQU         $0048			; TIMER CONTROL REG 1 (UPPER 8 MODE/LEVEL) <- IN ORDER [7 TO 4]
+TCTL2       EQU         $0049			; TIMER CONTROL REG 2 (LOWER 8 M/L) [3 TO 0]
+
+TIE         EQU         $004C			; ENABLES INTERRUPTS ON THE SPECIFIED CHANNEL. 
+TFLG1       EQU         $004E			; BITS CORRESPOND TO CHANNELS. [7:0]
+TFLG2       EQU         $004F			; BIT [7] IS THE TOF 
+
+TC2H        EQU         $0054			; -------------------------------------------
+TC2L        EQU         $0055			; THESE REGISTERS CAN EITHER LATCH THE VALUE OF THE FRC,
+;TC3H        EQU         $0056			; OR BE USED TO TRIGGER AN OC EVENT WHEN FRC REACHES THIS VALUE! :)
+;TC3L        EQU         $0057			; -------------------------------------------
+TC7H        EQU         $005E
+TC7L        EQU         $005F
 
 ; ------ MASKS ------
-T1_MSK		EQU			$80 		; (1000 0000) MASK FOR ENABLING THE TIMER SYSTEM.
-IOCHMASK	EQU			$0C			; MASK TO SET CH. 2&3 AS OUTPUT (0000 1100) (CONSEQUENTLY, SETTING ALL OTHERS TO INPUT)
-;TIE_MASK	EQU			$03			; ENABLES INTERRUPTS FROM CHANNELS 0&1. FOR INPUT CAPTURE.
+TSCR1_MSK   EQU         $80             ; (1000 0000) MASK FOR ENABLING THE TIMER SYSTEM.
+TSCR2_MSK   EQU         $83             ; TIMER OVERFLOW DISABLES, PRESCALAR SET TO 8.
+                                        ; MAYBE DO $8X ? TO ENABLE INTERRUPTS? IDK ABOUT THE PRESCALAR THOUGH.
+TIOS_MSK    EQU         $0C             ; MASK TO SET CH. 2&3 AS OUTPUT (0000 1100) (CONSEQUENTLY, SETTING ALL OTHERS TO INPUT)
+TCTL2_TGL   EQU         $50             ; 0101 0000, SETTING CHANNELS 2 & 3 TO TOGGLE.
+TCTL2_OFF   EQU         #C0             ; 1010 0000, SETTING CHANNELS 2 & 3 TO OFF.
+OC7M_MSK    EQU         $0C             ; SETS BITS 0000 1100 (CHANNELS 2/3) FOR SIMULTANEOUS OUTPUT TO PORT T PINS.
+                                        ; [7:0] == [CH3M, CH3L, CH2M, CH2L, CH1M, CH1L, CH0M, CH0L]
+OC7D_MSK    EQU         $0C
+                                        ; TIE_MASK   EQU         $03             ; ENABLES INTERRUPTS FROM CHANNELS 0&1. FOR INPUT CAPTURE.
+TIE_MSK     EQU         $0F             ; ENABLES CHANNELS 0 - 3 TO CAUSE INTERRUPTS.
+                                        
+; ----- TIMING VALUES ------
+; FOR PRESCALAR OF 8
+ONE_SEC     EQU         $002E
+FIV_SEC     EQU         $00E5
+FIFTEEN     EQU         $02AF
+
+; STARTING AT 5% OF OUR DUTY CYCLE WILL BE...
+DUTY        EQU         $#0CCD
+STEP        EQU         $#2B
+;OVF_CNT     RDB         $SOME ADDRESS   ; EVERYTIME OVF OCCURS, ADD TSCR[7] TO THIS.-------------------
+
+            ORG         $WHEREVER WE ORG;----------------
+            LDAA        #$0000
+            STAA        OVF_CNT				; NO OVERFLOWS HAVE OCCURED YET, SO SET THE OVERFLOW COUNT TO 0.
+            BSR         TIM_INIT			; INITIALIZE THE TIMER.
+DONE        BSR         GEN_WAVE			; GENERATE A SQUARE WAVE!
+            BRA         DONE
+			
+TIM_INIT    CLR         TIE					; CLEAR THE TIMER, WHICH DISABLES INTERRUPTS.
+            MOVB        #TSCR2_MSK,TSCR2	; DISABLES OVF, AND SETS PRESCALER TO 8.
+            MOVB        #TCTL2_MSK,TCTL2	; SETS OC CHANNELS 2/3 TO TOGGLE.
+            MOVB        #TIOS_MSK,TIOS		; SELECTS CHANNELS 2/3 FOR OUTPUT.
+            MOVW        #$0CCD,TC2H			; LOADING TC2 (H AND L) WITH $0CCD (3277) FOR 5% DUTY CYCLE
+            MOVB        #TSCR1_MSK,TSCR1	; ENABLE THE TIMER.
+            RTS			
+			
+; CLEAR THE C2 AND C3 FLAGS BY READING TFLG1 WHEN C2F AND/OR C3F IS SET THEN WRITING 1 TO CnF. (IS IT NECESSARY TO DO BOTH?)			
+CLRFLG		
+            LDAA        TFLG1               ;
+            ORAA        #$0C                ; WRITING 1s TO THOSE CHANNELS CLEAR THE CHANNEL FLAGS.			
+            STAA        TFLG1               ;
+			
+GEN_WAVE    BRCLR       TFLG1,$0C,GEN_WAVE  ; THIS IS POLLING, AND KIND OF SUCKS.
+            LDD         TC2H
+            ADDD        STEP        ;---------------------------------------------; HEX VALUE FOR HIGH COUNT
+            STD         TC2H                ; SETS NEXT TRANSITION TIMER
+            BSR         CLRFLG
+            RTS
+
+ON_OVF  ; ON-OVERFLOW                       ; NOTE: ANY ACCESS TO TCNT REGISTER WILL CLEAR THE TOF IN TFLG2
+            LDAA        #OVF_CNT            ; LOAD CURRENT OVERFLOW COUNT INTO A
+            ;ADDA        #TFLG2              ; ADD NEW OVF (1) TO A. 
+            INCA                            ; - COULD ALSO JUST 'INCA'
+            STAA        OVF_CNT             ; STORE VALUE BACK INTO A.
+			CLR         TFLG2               ; CLEAR / RESET THE OVERFLOW FLAG.
+            RTS
+RISING			
+            
+            END
+STEADY
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 ; ------ PWM STUFF ------
 ;PWECH		EQU			$00A0		; THIS IS THE PWM ENABLER REGISTER, EACH BIT IS A DIFFERENT PWM CHANNEL.
@@ -35,5 +134,3 @@ IOCHMASK	EQU			$0C			; MASK TO SET CH. 2&3 AS OUTPUT (0000 1100) (CONSEQUENTLY, 
 ;PWDTY1		EQU			$00BD
 ;PWPER0		EQU			$00B4
 ;PWPER1		EQU			$00B5
-
-
