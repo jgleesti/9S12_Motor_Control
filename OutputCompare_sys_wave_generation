@@ -1,136 +1,270 @@
+;===============================================================================
+; Jordan Lee, Logan Barnes
+; Group 1
+; ECE 4730
+; 02.11.2016
+; Description: This program generates PWM signals to control dc motors. We are
+;   completing part one of lab 7.11 in "Microcontroller Theory and Applications
+;   HC12 & S12". The learning lessons from this lab are to understand and use
+;   the input capture and output compare systems to create the PWM signals. We
+;   will be using a 12V DC motor and a SN774410NE driver.
+;===============================================================================
 
-; This is a CODE SNIPPET for configuring and utilizing the OC system to modify the duty cycle of a rectangular output waveform.
+;-------------------------------------------------------------------------------
+;Set constant variables
+;-------------------------------------------------------------------------------
+            ORG         $1000
+; ---- LOCATIONS ----
+TIOS        EQU         $0040   ; TIMER I/O SELECT. BITS CORRESPOND TO CHANNELS. I.E. [7:0]
+CFORC       EQU         $0041   ; TIMER OC FORCE REG. BASICALLY FORCES AN OUPUT SIGNAL!
 
-TIOS        EQU         $0040
-CFORC       EQU         $0041			; TIM OC FORCE REG. BASICALLY FORCES AN OUPUT SIGNAL! COOL. -USE THIS?
-OC7M        EQU	        $0042			; FORCES PORT T PIN TO BE OUTPUT. REGARDLESS OF DDRT SETTINGS.
-OC7D        EQU         $0043			; SEND BITS CORRESPONDING TO SET BITS OF OC7M TO TIMER PORT PINS.
-TCNT        EQU         $0044           ; SAME AS TCNTH, WE CAN JUST USE THIS FOR FETCHING ALL 16 BITS.
-;TCNTH       EQU         $0044			; TIMER COUNTER HIGH (UPPER 8 BITS)
-TCNTL       EQU         $0045			; TIMER COUNTER LOW (LOWER 8 BITS)
+OC7M        EQU         $0042   ; FORCES PORT T PIN TO BE OUTPUT. REGARDLESS OF DDRT SETTINGS.
+OC7D        EQU         $0043   ; SEND BITS CORRESPONDING TO SET BITS OF OC7M TO TIMER PORT PINS.
 
-TSCR1       EQU         $0046			; BIT 7 IS TEN (TIMER ENABLE) 1000 0000 TO ENABLE.
-TSCR2       EQU         $004D			; DON'T MESS WITH BIT 3 ($08) IT RESETS THE FRC!
-										; BITS [2:0] ARE THE PRESCALER BITS.
-TCTL1       EQU         $0048			; TIMER CONTROL REG 1 (UPPER 8 MODE/LEVEL) <- IN ORDER [7 TO 4]
-TCTL2       EQU         $0049			; TIMER CONTROL REG 2 (LOWER 8 M/L) [3 TO 0]
+TCNT        EQU         $0044   ; SAME AS TCNTH, WE CAN JUST USE THIS FOR FETCHING ALL 16 BITS.
+TCNTH       EQU         $0044   ; TIMER COUNTER HIGH (UPPER 8 BITS)
+TCNTL       EQU         $0045   ; TIMER COUNTER LOW (LOWER 8 BITS)
 
-TIE         EQU         $004C			; ENABLES INTERRUPTS ON THE SPECIFIED CHANNEL. 
-TFLG1       EQU         $004E			; BITS CORRESPOND TO CHANNELS. [7:0]
-TFLG2       EQU         $004F			; BIT [7] IS THE TOF 
+TSCR1       EQU         $0046   ; BIT 7 IS TEN (TIMER ENABLE) 1000 0000 TO ENABLE.
+TSCR2       EQU         $004D   ; DON'T MESS WITH BIT 3 ($08) IT RESETS THE FRC!
+                                ; BITS [2:0] ARE THE PRESCALER BITS.
+TCTL1       EQU         $0048   ; TIMER CONTROL REG 1 (UPPER 8 MODE/LEVEL) <- IN ORDER [7 TO 4]
+TCTL2       EQU         $0049   ; TIMER CONTROL REG 2 (LOWER 8 M/L) [3 TO 0]
+TCTL4       EQU         $004B   ; 
+TIE         EQU         $004C   ; ENABLES INTERRUPTS ON THE SPECIFIED CHANNEL.
 
-TC2H        EQU         $0054			; -------------------------------------------
-TC2L        EQU         $0055			; THESE REGISTERS CAN EITHER LATCH THE VALUE OF THE FRC,
-;TC3H        EQU         $0056			; OR BE USED TO TRIGGER AN OC EVENT WHEN FRC REACHES THIS VALUE! :)
-;TC3L        EQU         $0057			; -------------------------------------------
-TC7H        EQU         $005E
-TC7L        EQU         $005F
+TFLG1       EQU         $004E    ; BITS CORRESPOND TO CHANNELS. [7:0]
+TFLG2       EQU         $004F    ; BIT [7] IS THE TOF 
 
-; ------ MASKS ------
-TSCR1_MSK   EQU         $80             ; (1000 0000) MASK FOR ENABLING THE TIMER SYSTEM.
-TSCR2_MSK   EQU         $83             ; TIMER OVERFLOW DISABLES, PRESCALAR SET TO 8.
-                                        ; MAYBE DO $8X ? TO ENABLE INTERRUPTS? IDK ABOUT THE PRESCALAR THOUGH.
-TIOS_MSK    EQU         $0C             ; MASK TO SET CH. 2&3 AS OUTPUT (0000 1100) (CONSEQUENTLY, SETTING ALL OTHERS TO INPUT)
-TCTL2_TGL   EQU         $50             ; 0101 0000, SETTING CHANNELS 2 & 3 TO TOGGLE.
-TCTL2_OFF   EQU         #C0             ; 1010 0000, SETTING CHANNELS 2 & 3 TO OFF.
-OC7M_MSK    EQU         $0C             ; SETS BITS 0000 1100 (CHANNELS 2/3) FOR SIMULTANEOUS OUTPUT TO PORT T PINS.
-                                        ; [7:0] == [CH3M, CH3L, CH2M, CH2L, CH1M, CH1L, CH0M, CH0L]
-OC7D_MSK    EQU         $0C
-                                        ; TIE_MASK   EQU         $03             ; ENABLES INTERRUPTS FROM CHANNELS 0&1. FOR INPUT CAPTURE.
-TIE_MSK     EQU         $0F             ; ENABLES CHANNELS 0 - 3 TO CAUSE INTERRUPTS.
-                                        
+PRINTF      EQU         $EE88   ;The 9S12 subroutine for printing to screen
+
+TC2H        EQU         $0054   ; WILL USE TC2/TC3 TO TURN CH 2,3 TO LOGIC LOW, EVERYTIME 
+TC2L        EQU         $0055   ;   THE FRC ROLLS OVER. ?
+TC3H        EQU         $0056   ; -THESE REGISTERS CAN EITHER LATCH THE VALUE OF THE FRC,-
+TC3L        EQU         $0057   ; -OR BE USED TO TRIGGER AN OC EVENT WHEN FRC REACHES THIS VALUE!- :)
+TC7H        EQU         $005E   ; WILL USE TC7 TO TURN CH 2,3 TO LOGIC HIGH, AFTER
+TC7L        EQU         $005F   ;   THE FRC COUNTS TO NUMBER STORED HERE.
+
+; ---- VALUES TO USE ----
+CR:         EQU         $0D     ;ASCII Return character
+LF:         EQU         $0A     ;ASCII linefeed character
 ; ----- TIMING VALUES ------
-; FOR PRESCALAR OF 8
+;     FOR PRESCALAR OF 8
 ONE_SEC     EQU         $002E
 FIV_SEC     EQU         $00E5
 FIFTEEN     EQU         $02AF
 
-; STARTING AT 5% OF OUR DUTY CYCLE WILL BE...
-DUTY        EQU         $#0CCD
-STEP        EQU         $#2B
-;OVF_CNT     RDB         $SOME ADDRESS   ; EVERYTIME OVF OCCURS, ADD TSCR[7] TO THIS.-------------------
 
-            ORG         $WHEREVER WE ORG;----------------
-            LDAA        #$0000
-            STAA        OVF_CNT				; NO OVERFLOWS HAVE OCCURED YET, SO SET THE OVERFLOW COUNT TO 0.
-            BSR         TIM_INIT			; INITIALIZE THE TIMER.
-DONE        BSR         GEN_WAVE			; GENERATE A SQUARE WAVE!
-            BRA         DONE
-			
-TIM_INIT    CLR         TIE					; CLEAR THE TIMER, WHICH DISABLES INTERRUPTS.
-            MOVB        #TSCR2_MSK,TSCR2	; DISABLES OVF, AND SETS PRESCALER TO 8.
-            MOVB        #TCTL2_MSK,TCTL2	; SETS OC CHANNELS 2/3 TO TOGGLE.
-            MOVB        #TIOS_MSK,TIOS		; SELECTS CHANNELS 2/3 FOR OUTPUT.
-            MOVW        #$0CCD,TC2H			; LOADING TC2 (H AND L) WITH $0CCD (3277) FOR 5% DUTY CYCLE
-            MOVB        #TSCR1_MSK,TSCR1	; ENABLE THE TIMER.
-            RTS			
-			
-; CLEAR THE C2 AND C3 FLAGS BY READING TFLG1 WHEN C2F AND/OR C3F IS SET THEN WRITING 1 TO CnF. (IS IT NECESSARY TO DO BOTH?)			
-CLRFLG		
-            LDAA        TFLG1               ;
-            ORAA        #$0C                ; WRITING 1s TO THOSE CHANNELS CLEAR THE CHANNEL FLAGS.			
-            STAA        TFLG1               ;
-			
-GEN_WAVE    BRCLR       TFLG1,$0C,GEN_WAVE  ; THIS IS POLLING, AND KIND OF SUCKS.
-            LDD         TC2H
-            ADDD        STEP        ;---------------------------------------------; HEX VALUE FOR HIGH COUNT
-            STD         TC2H                ; SETS NEXT TRANSITION TIMER
-            BSR         CLRFLG
-            RTS
+; ----- MASKS -----
+TIOS_IN     EQU         $0C     ;Sets 0 and 1 to IC and sets 2 and 3 to OC
+OC7M_MSK    EQU         $0C     ; SETS BITS 0000 1100 (CHANNELS 2/3) FOR SIMULTANEOUS OUTPUT TO PORT T PINS.
+                                ; [7:0] == [CH3M, CH3L, CH2M, CH2L, CH1M, CH1L, CH0M, CH0L]
+OC7D_MSK    EQU         $0C     ; EACH BIT CORRESPONDS TO PORT T BITS. THESE VALUES ARE WRITTEN OUT
+                                ; TO PORT T ON A SUCCESSFUL 0C7 COMPARE ACTION.
+TEN         EQU         $80     ; TEN is bit 7 of TSCR1 
+TSCR2_IN    EQU         $03     ; OVF INTERRUPT DISABLED. PRESCALAR SET TO 8.
+TCTL2_OFF   EQU         $A0     ; 1010 0000, SETTING CHANNELS 2 & 3 TO "OFF". (LOGIC LEVEL LOW)
+;TCTL2_TGL  EQU          $50     ; 0101 0000, SETTING CHANNELS 2 & 3 TO TOGGLE.
+TCTL4_IN    EQU         $05     ; Initialize IC0 and IC1 to rising edge
+TIE_MSK     EQU         $0F     ; ENABLES CHANNELS 0 - 3 TO CAUSE INTERRUPTS.
+IC_EN       EQU         $03     ; Enable IC0, IC1 interrupts
+TIE_MSK     EQU         $07     ; ENABLES IC0, IC1, AND OC2 INTERRUPTS.
+T1_MSK      EQU         $80
+IOCHMASK    EQU         $0C     
+CLR_FLG1    EQU         $87     ; WRITING THIS TO THE TFLG1 REGISTER WILL CLEAR ALL THE FLAGS THAT WE'LL BE USING. 
+TC2_MSK     EQU         $0000   ; WHEN THE FRC EQUALS THIS VALUE (I.E. ON EVERY ROLLOVER),
+TC3_MSK     EQU         $0000   ;    CH 2,3 WILL BOTH BE SET TO VALUES SPECIFIED IN TCTL2 (OFF).
 
-ON_OVF  ; ON-OVERFLOW                       ; NOTE: ANY ACCESS TO TCNT REGISTER WILL CLEAR THE TOF IN TFLG2
-            LDAA        #OVF_CNT            ; LOAD CURRENT OVERFLOW COUNT INTO A
-            ;ADDA        #TFLG2              ; ADD NEW OVF (1) TO A. 
-            INCA                            ; - COULD ALSO JUST 'INCA'
-            STAA        OVF_CNT             ; STORE VALUE BACK INTO A.
-			CLR         TFLG2               ; CLEAR / RESET THE OVERFLOW FLAG.
+DEBUG       FCC         'Debug' ;A string to put to the screen for debug
+            DB          CR,LF,0 ;purposes
+
+;Memory spots reserved for keeping track of the number of seconds that have
+;passed and the characters to print to the screen.
+PRINT1      FCC         'The total running time is ' ;First part of the string
+SEC_TEN     FCB         $02     ;A place in memory to keep track of the tens
+                                ;position when counting seconds
+SEC_ONE     FCB         $30     ;Keep track of the ones right after the tens
+PRINT2      FCC         ' sec.' ;End of the print statement
+            DB          CR,LF,0 ;Carriage return, line feed and end of string
+                                ;marker
+
+NUM_PULSES  FDB         $0000   ;Keep track of the number of pulses received
+PPS         FDB         $002E   ;Keep two bytes for pulses per second
+                                ; THERE WILL BE 2E OVERFLOWS/SECOND (46)
+DUTY        FDB         $0CCD   ; INITIAL VALUE OF 3,277 'TICKS' = 5% DUTY CYCLE.
+STEP        FCB         $2B     ; AMOUNT TO STEP UP/DOWN EACH PERIOD.
+
+;-------------------------------------------------------------------------------
+; Main Program
+; a. Use the output compare system to modify the duty cycle of the rectangular
+;        output waveform
+; b. Use the input capture funtion to monitor the number of pulses arriving at
+;        an input capture pin and modify the output waveform accordingly
+; c. Change the speed of the motor by adjusting the duty cycle of the output
+;        waveform according to a specified speed profile
+; d. Interface the S12 with 2 DC motors using the SN754410NE chip
+;-------------------------------------------------------------------------------
+
+            ORG         $2000
+            LDS         #$4000               ;Initialize the stack
+
+
+;  a.Pins PT2 and PT3 are used to generate ouput signals
+;    The TCNT takes 21.85 ms to count from 0000 to FFFF. For a 15 second time
+; period we need 687 pulses (ROLLOVERS). 5 seconds will be sent for acceleration, 5
+; seconds for constant speed and 5 seconds for deceleration. Each 5 second
+; period will consist of 229 pulses (ROLLOVERS) of the FRC (TCNT?). Acceleration starts at 5%
+; duty cycle and goes until 20% duty cycle. A 5% duty cycle will have 3,277 TICKS,
+; and a 20% duty cycle will have a count of 13,107 TICKS.
+; Step Two - Generate PWM signals
+;  b.Pins PT0 and PT1 are used to monitor input signals generated by the OC2 and
+; OC3 output compare systems
+; c.The OC2 and OC3 output compare systems will control the left and right motors
+
+            BSR         TIMERINIT       ;Initialize timer system
+GEN         BSR         SETDUTY         ;Set the duty cycle for each loop
+            BRA         GEN
+
+;-------------------------------------------------------------------------------
+; TIMERINIT subroutine: Initializes the Output compare AND INPUT CAPTURE SYSTEMS.
+;-------------------------------------------------------------------------------
+TIMERINIT   CLR         TIE                 ;Disable channel interrupts.
+            MOVB        #TSCR2_IN, TSCR2    ;DISABLE OVF INTERRUPTS, PRESCALAR = 8.
+            MOVB        #TCTL4_IN, TCTL4    ;Set IC0 and IC1 to rising edge
+            MOVB        #TCTL2_OFF,TCTL2    ;Set OC2 and OC3 to low ON-COMPARE.
+            MOVB        #OC7M_MSK, OC7M     ;SET OC2,OC3 TO OUTPUT TO PORT T 2,3.
+            MOVB        #OC7D_MSK, OC7D     ;LOGIC TO WRITE OUT TO PORT T 2,3. (0000 1100)
+            MOVB        #TIOS_IN, TIOS      ;Set pins 0,1 to IC and 2,3 to OC
+            MOVW        #IC_INT, $3E6E      ;Set vector for IC0,IC1 with DBUG12
+                                            ;interrupt vector map address
+            MOVW        #ON-OVF, $3E5E      ; RAM-ADDRESS THAT CORRESPONDS TO IRQ VECTOR IN EPROM.
+            MOVW        #TC7_INT, $3E60     ; ON TC7 INTERRUPT, WILL JUMP TO THIS ISR
+            MOVW        #TC2_INT, $3E6A     ; ON TC2 INTERRUPT, WILL JUMP TO THIS ISR
+            MOVW        #TC2_MSK, TC2H      ; TC2/TC3 COMPARE THEMSELVES TO FRC FOR EQUIVALENCY.
+            ;MOVW        #TC3_MSK, TC3H      ; HERE THEY'RE EQUAL TO 0000.
+            MOVW        #DUTY, TC7H         ; WHEN FRC COUNTS UP TO 'DUTY', ACTION!
+            MOVB        #TEN, TSCR1         ;Enable timer system with TEN bit
+            CLI ;  WE'VE DISABLED ALL OTHER INTERRUPTS ABOVE, IS THIS SUPPOSED TO ENABLE? :/
+ 		; IF WE DO WANT TO ENABLE INTERRUPTS ON OVERFLOWS AND IC/OC, WE JUST NEED THE FOLLOWING: 
+            MOVB        #8C, TSCR2          ; ENABLES OVERFLOW INTERRUPTS, PRESCALAR OF 8.
+            MOVB        #TIE_MSK, TIE         ;Enable IC0, IC1, OC2 interrupts	
             RTS
-RISING			
+    
+;-------------------------------------------------------------------------------
+; GETDUTY subroutine: Gets desired duty cycle value and stores it in DUTY
+;-------------------------------------------------------------------------------
+GETDUTY     
             
+            RTS
+
+;-------------------------------------------------------------------------------
+; SETDUTY subroutine: Sets the duty cycle according to value in Accumulator A
+;-------------------------------------------------------------------------------
+SETDUTY     RTS
+
+;-------------------------------------------------------------------------------
+; IC_INT subroutine: The ISR for an IC event
+;-------------------------------------------------------------------------------
+IC_INT      LDAA        TFLG1          ;Clear the IC0 and IC1 Flags
+            ORAA        #$03
+            STAA        TFLG1
+            LDAA        SEC_TEN        ;Check the ten's spot to see if we are
+            CMPA        #$02           ;in the first ten seconds. If we aren't
+            BNE         DCL            ;then we have to be decelerating
+            LDAA        SEC_ONE        ;We are in the first ten seconds. Check
+            CMPA        #$35           ;if we are in the first five seconds and
+            BLT         ACC            ;accelerate if we are.
+            BRA         CONST          ;5-10 second range means constant speed
+DCL         JSR         MTR_DEC        ;Decelerate the motors
+            BRA         CHCK_SEC
+ACC         JSR         MTR_ACC        ;Accelerate the motors
+            BRA         CHCK_SEC
+CONST       JSR         MTR_CONST      ;Keep motors constant
+CHCK_SEC    LDD         NUM_PULSES     ;Check the number of pulses received so
+            ADDD        #01            ;far and add 1 to it
+            STD         NUM_PULSES     ;Store the new number of pulses
+            LDX         PPS            ;Get the number of pulses in a second and
+            IDIV                        ;divide total pulses by that number
+            CPD         #0000          ;If there is no remainder, then we are at
+            BEQ         IS_SEC         ;the second mark
+            RTI                         ;if there is a remainder continue program
+IS_SEC      JSR         PRINT          ;Call the print subroutine to print out
+            RTI                         ;the number of seconds and return from
+                                       ;the interrupt
+
+;-------------------------------------------------------------------------------
+; PRINT subroutine: Prints the values to the computer monitor
+;-------------------------------------------------------------------------------
+PRINT       LDAA        SEC_ONE       ;Get current number of seconds in ones position
+            ADDA        #01           ;Add a second to the ones position
+            CMPA        #$3A          ;Check to see if it is the character above '9'
+            BEQ         ADD_TEN       ;and if it is go to the ADD_TEN section
+            STAA        SEC_ONE       ;If not store the new added second to ones
+            BRA         PRNT_SEC      ;position and continue to print
+ADD_TEN     LDAA        #$31          ;Put a '1' in the tens position
+            STAA        SEC_TEN
+            LDAA        #$30          ;Put a '0' in the ones position
+            STAA        SEC_ONE
+PRNT_SEC    LDD         #PRINT1       ;Display the message that tracks how many seconds
+            LDX         PRINTF        ;have passed based on the number of pulses
+            JSR         0,X
+            LDAA        SEC_ONE       ;Check one's and ten's place to see if we have
+            CMPA        #$35          ;reached 15 seconds. When we have then the
+            BNE         GO            ;program can stop executing. Otherwise, continue
+            LDAA        SEC_TEN       ;running the program
+            CMPA        #$31
+            BNE         GO
+DONE        BRA         DONE
+GO          RTS
+
+
+; ISR ON-TIMER-OVERFLOW (COULD BE DOING THIS WRONG)
+; DETERMINES WHICH OF THE BELOW 3 SUBROUTINES SHOULD BE CALLED. (NECESSARY?)
+ON-OVF      CLR         TFLG2       ; CLEAR TOF.
+            LDD         #$NUMBER OF OVERFLOWS?
+            ; COMPARE D, IF < 5 SECOND COUNT $00E5(229), GOTO MTR_ACC
+            ;BRLOW?
+            ; COMPRE, IF D < 10 SECOND $ (458), GOTO MTR_CONST
+            ; BRANCH SOMEHOW
+            ; COMPRE, IF D < 15 S, $02AF (687), GOTO MTR_DEC
+            ;BRANCH SOMEHOW
+            RTI
+
+; THIS ISR WILL BE CALLED WHEN THE FRC == TC7, WHICH IS OUR DUTY CYCLE
+TC7_INT
+            
+
+; THIS ISR WILL BE CALLED WHEN THE FRC == TC72, WHICH IS $0000
+; NO NEED! EVERYTHING WE'D DO HERE, WE CAN DO ON-OVF!
+;TC2_INT
+
+;-------------------------------------------------------------------------------
+; MTR_ACC subroutine: Gets called every TCNT pulse for seconds 0 - 5. Every time
+;                     this subroutine is called it increases the motor duty
+;                     cycle by a specified amount.
+;-------------------------------------------------------------------------------
+MTR_ACC     LDD         #DUTY     ;Get the current Duty cycle and add 2B to it to
+            ADDD        #STEP    ;increase from 5% to 20% over five seconds
+            STD         DUTY
+            CLR         TFLG2    ;Reset the overflow flag
+            RTS
+
+;-------------------------------------------------------------------------------
+; MTR_CONST subroutine: Gets called every TCNT pulse for seconds 5-10. This
+;                      subroutine keeps the motor's duty cycle at the same rate.
+;-------------------------------------------------------------------------------
+MTR_CONST   CLR         TFLG2    ;Reset the overflow flag
+            RTS
+
+;-------------------------------------------------------------------------------
+; MTR_DEC subroutine: Gets called every TCNT pulse for seconds 10-15. This
+;                     subroutine decreases the motor's duty cycle by a specified
+;                     amount.
+;-------------------------------------------------------------------------------
+MTR_DEC     LDD         #DUTY     ;Get the current Duty cycle and add 2B to it to
+            SUBD        #STEP     ;decrease from 20% to 5% over five seconds
+            STD         DUTY
+            CLR         TFLG2     ;Reset the overflow flag
+            RTS
+
             END
-STEADY
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-; ------ PWM STUFF ------
-;PWECH		EQU			$00A0		; THIS IS THE PWM ENABLER REGISTER, EACH BIT IS A DIFFERENT PWM CHANNEL.
-;PWMC1		EQU			$01
-;PWMC2		EQU			$02
-
-;PWPOL		EQU			$00A1		; SETS POLARTY FOR *EACH CHANNEL* BIT-BY-BIT
-;POLRTY		EQU			$03			; HERE, SETTING CH_0 AND CH_1 TO ACTIVE HIGH DUTY.			
-;PWCNT0		EQU			$00AD
-;PWCNT1		EQU			$00AE
-;PACTL		EQU			$0060
-;PWDTY0		EQU			$00BC
-;PWDTY1		EQU			$00BD
-;PWPER0		EQU			$00B4
-;PWPER1		EQU			$00B5
