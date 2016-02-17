@@ -145,8 +145,8 @@ TIMERINIT   CLR         TIE                 ;Disable channel interrupts.
             ;MOVW        #TC2_INT, ;$3E6A     ; ON TC2 INTERRUPT, WILL JUMP TO THIS ISR
             ;MOVW        #TC2_MSK, TC2H      ; TC2/TC3 COMPARE THEMSELVES TO FRC FOR EQUIVALENCY.
             ;MOVW        #TC3_MSK, TC3H      ; HERE THEY'RE EQUAL TO 0000.
-            MOVW        #$TC2_MSK, TC2H       ; ON ROLL-OVER, OC2 WILL GO HIGH.
-            MOVW        #$TC3_MSK, TC3H        ; SAME WITH OC3.
+            MOVW        #TC2_MSK, TC2H       ; ON ROLL-OVER, OC2 WILL GO HIGH.
+            MOVW        #TC3_MSK, TC3H        ; SAME WITH OC3.
             MOVW        #DUTY, TC7H         ; WHEN FRC COUNTS UP TO 'DUTY', ACTION!
             MOVB        #TEN, TSCR1         ;Enable timer system with TEN bit
             MOVB        #IC_EN, TIE         ;Enable IC0 interrupts	
