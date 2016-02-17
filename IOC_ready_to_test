@@ -59,16 +59,15 @@ FIFTEEN     EQU         $02AF
 TIOS_IN     EQU         $0C     ;Sets 0 and 1 to IC and sets 2 and 3 to OC
 OC7M_MSK    EQU         $0C     ; SETS BITS 0000 1100 (CHANNELS 2/3) FOR SIMULTANEOUS OUTPUT TO PORT T PINS.
                                 ; [7:0] == [CH3M, CH3L, CH2M, CH2L, CH1M, CH1L, CH0M, CH0L]
-OC7D_MSK    EQU         $0C     ; EACH BIT CORRESPONDS TO PORT T BITS. THESE VALUES ARE WRITTEN OUT
-                                ; TO PORT T ON A SUCCESSFUL 0C7 COMPARE ACTION.
+OC7D_MSK    EQU         $00     ; EACH BIT CORRESPONDS TO PORT T BITS. THESE VALUES ARE WRITTEN OUT
+                                ; TO PORT T ON A SUCCESSFUL 0C7 COMPARE ACTION. (WILL SET THEM LOW)
 TEN         EQU         $80     ; TEN is bit 7 of TSCR1 
 TSCR2_IN    EQU         $03     ; OVF INTERRUPT DISABLED. PRESCALAR SET TO 8.
-TCTL2_OFF   EQU         $A0     ; 1010 0000, SETTING CHANNELS 2 & 3 TO "OFF". (LOGIC LEVEL LOW)
+TCTL2_ON    EQU         $F0     ; 1111 0000, SETTING CHANNELS 2 & 3 TO "ON". (LOGIC LEVEL HIGH)
 ;TCTL2_TGL  EQU          $50     ; 0101 0000, SETTING CHANNELS 2 & 3 TO TOGGLE.
 TCTL4_IN    EQU         $05     ; Initialize IC0 and IC1 to rising edge
-TIE_MSK     EQU         $0F     ; ENABLES CHANNELS 0 - 3 TO CAUSE INTERRUPTS.
-IC_EN       EQU         $03     ; Enable IC0, IC1 interrupts
-TIE_MSK     EQU         $07     ; ENABLES IC0, IC1, AND OC2 INTERRUPTS.
+;TIE_MSK     EQU         $0F     ; ENABLES CHANNELS 0 - 3 TO CAUSE INTERRUPTS.
+IC_EN       EQU         $01     ; Enable IC0, !(IC1) interrupt. ONLY NEED ONE PIN.
 T1_MSK      EQU         $80
 IOCHMASK    EQU         $0C     
 CLR_FLG1    EQU         $87     ; WRITING THIS TO THE TFLG1 REGISTER WILL CLEAR ALL THE FLAGS THAT WE'LL BE USING. 
@@ -91,7 +90,7 @@ PRINT2      FCC         ' sec.' ;End of the print statement
 NUM_PULSES  FDB         $0000   ;Keep track of the number of pulses received
 PPS         FDB         $002E   ;Keep two bytes for pulses per second
                                 ; THERE WILL BE 2E OVERFLOWS/SECOND (46)
-DUTY        FDB         $0CCD   ; INITIAL VALUE OF 3,277 'TICKS' = 5% DUTY CYCLE.
+DUTY        FDB         $0CCD   ; INITIAL VALUE OF 3,277 'TICKS' = 5% DUTY CYCLE. This value goes in TC7
 STEP        FCB         $2B     ; AMOUNT TO STEP UP/DOWN EACH PERIOD.
 
 ;-------------------------------------------------------------------------------
@@ -122,8 +121,11 @@ STEP        FCB         $2B     ; AMOUNT TO STEP UP/DOWN EACH PERIOD.
 ; c.The OC2 and OC3 output compare systems will control the left and right motors
 
             BSR         TIMERINIT       ;Initialize timer system
-GEN         BSR         SETDUTY         ;Set the duty cycle for each loop
-            BRA         GEN
+RUNNING     BRA         RUNNING         ; Is this right? We're just letting it run now.
+                                        ; Duty cycle is modified every cycle, during IC event.
+                                        ; OC channels set high/low using OC2/OC3 and OC7, without ISRs,
+                                        ; So they just keep going. It's the IC events (ISRs) that 
+                                        ; will print to screen, and determine when we change acceleration.
 
 ;-------------------------------------------------------------------------------
 ; TIMERINIT subroutine: Initializes the Output compare AND INPUT CAPTURE SYSTEMS.
@@ -131,42 +133,34 @@ GEN         BSR         SETDUTY         ;Set the duty cycle for each loop
 TIMERINIT   CLR         TIE                 ;Disable channel interrupts.
             MOVB        #TSCR2_IN, TSCR2    ;DISABLE OVF INTERRUPTS, PRESCALAR = 8.
             MOVB        #TCTL4_IN, TCTL4    ;Set IC0 and IC1 to rising edge
-            MOVB        #TCTL2_OFF,TCTL2    ;Set OC2 and OC3 to low ON-COMPARE.
+            MOVB        #TCTL2_ON,TCTL2    ;Set OC2 and OC3 to HIGH ON-COMPARE. (ON OVERFLOW)
             MOVB        #OC7M_MSK, OC7M     ;SET OC2,OC3 TO OUTPUT TO PORT T 2,3.
-            MOVB        #OC7D_MSK, OC7D     ;LOGIC TO WRITE OUT TO PORT T 2,3. (0000 1100)
+            MOVB        #OC7D_MSK, OC7D     ;LOGIC TO WRITE OUT TO PORT T 2,3 A LOW SIGNAL. (0000 0000)
             MOVB        #TIOS_IN, TIOS      ;Set pins 0,1 to IC and 2,3 to OC
             MOVW        #IC_INT, $3E6E      ;Set vector for IC0,IC1 with DBUG12
-                                            ;interrupt vector map address
-            MOVW        #ON-OVF, $3E5E      ; RAM-ADDRESS THAT CORRESPONDS TO IRQ VECTOR IN EPROM.
-            MOVW        #TC7_INT, $3E60     ; ON TC7 INTERRUPT, WILL JUMP TO THIS ISR
-            MOVW        #TC2_INT, $3E6A     ; ON TC2 INTERRUPT, WILL JUMP TO THIS ISR
-            MOVW        #TC2_MSK, TC2H      ; TC2/TC3 COMPARE THEMSELVES TO FRC FOR EQUIVALENCY.
+                                            ;interrupt vector map address. -TC0
+            ; THE ON-OVF ISR MAY NOT BE NECESSARY, SINCE WE CAN DO WHAT IT DOES ON-RISING-EDGE ISR.
+            ;MOVW        #ON-OVF, $3E5E      ; RAM-ADDRESS THAT CORRESPONDS TO IRQ VECTOR IN EPROM.
+            ;MOVW        #TC7_INT, ;$3E60     ; ON TC7 INTERRUPT, WILL JUMP TO THIS ISR
+            ;MOVW        #TC2_INT, ;$3E6A     ; ON TC2 INTERRUPT, WILL JUMP TO THIS ISR
+            ;MOVW        #TC2_MSK, TC2H      ; TC2/TC3 COMPARE THEMSELVES TO FRC FOR EQUIVALENCY.
             ;MOVW        #TC3_MSK, TC3H      ; HERE THEY'RE EQUAL TO 0000.
+            MOVW        #$TC2_MSK, TC2H       ; ON ROLL-OVER, OC2 WILL GO HIGH.
+            MOVW        #$TC3_MSK, TC3H        ; SAME WITH OC3.
             MOVW        #DUTY, TC7H         ; WHEN FRC COUNTS UP TO 'DUTY', ACTION!
             MOVB        #TEN, TSCR1         ;Enable timer system with TEN bit
+            MOVB        #IC_EN, TIE         ;Enable IC0 interrupts	
             CLI ;  WE'VE DISABLED ALL OTHER INTERRUPTS ABOVE, IS THIS SUPPOSED TO ENABLE? :/
  		; IF WE DO WANT TO ENABLE INTERRUPTS ON OVERFLOWS AND IC/OC, WE JUST NEED THE FOLLOWING: 
-            MOVB        #8C, TSCR2          ; ENABLES OVERFLOW INTERRUPTS, PRESCALAR OF 8.
-            MOVB        #TIE_MSK, TIE         ;Enable IC0, IC1, OC2 interrupts	
+            ;MOVB        #8C, TSCR2          ; ENABLES OVERFLOW INTERRUPTS, PRESCALAR OF 8.
             RTS
     
-;-------------------------------------------------------------------------------
-; GETDUTY subroutine: Gets desired duty cycle value and stores it in DUTY
-;-------------------------------------------------------------------------------
-GETDUTY     
-            
-            RTS
-
-;-------------------------------------------------------------------------------
-; SETDUTY subroutine: Sets the duty cycle according to value in Accumulator A
-;-------------------------------------------------------------------------------
-SETDUTY     RTS
 
 ;-------------------------------------------------------------------------------
 ; IC_INT subroutine: The ISR for an IC event
 ;-------------------------------------------------------------------------------
 IC_INT      LDAA        TFLG1          ;Clear the IC0 and IC1 Flags
-            ORAA        #$03
+            ORAA        #$01           ; CHANGED FROM 03 TO 01, ONLY USING IC0
             STAA        TFLG1
             LDAA        SEC_TEN        ;Check the ten's spot to see if we are
             CMPA        #$02           ;in the first ten seconds. If we aren't
@@ -218,25 +212,6 @@ DONE        BRA         DONE
 GO          RTS
 
 
-; ISR ON-TIMER-OVERFLOW (COULD BE DOING THIS WRONG)
-; DETERMINES WHICH OF THE BELOW 3 SUBROUTINES SHOULD BE CALLED. (NECESSARY?)
-ON-OVF      CLR         TFLG2       ; CLEAR TOF.
-            LDD         #$NUMBER OF OVERFLOWS?
-            ; COMPARE D, IF < 5 SECOND COUNT $00E5(229), GOTO MTR_ACC
-            ;BRLOW?
-            ; COMPRE, IF D < 10 SECOND $ (458), GOTO MTR_CONST
-            ; BRANCH SOMEHOW
-            ; COMPRE, IF D < 15 S, $02AF (687), GOTO MTR_DEC
-            ;BRANCH SOMEHOW
-            RTI
-
-; THIS ISR WILL BE CALLED WHEN THE FRC == TC7, WHICH IS OUR DUTY CYCLE
-TC7_INT
-            
-
-; THIS ISR WILL BE CALLED WHEN THE FRC == TC72, WHICH IS $0000
-; NO NEED! EVERYTHING WE'D DO HERE, WE CAN DO ON-OVF!
-;TC2_INT
 
 ;-------------------------------------------------------------------------------
 ; MTR_ACC subroutine: Gets called every TCNT pulse for seconds 0 - 5. Every time
@@ -246,7 +221,8 @@ TC7_INT
 MTR_ACC     LDD         #DUTY     ;Get the current Duty cycle and add 2B to it to
             ADDD        #STEP    ;increase from 5% to 20% over five seconds
             STD         DUTY
-            CLR         TFLG2    ;Reset the overflow flag
+            MOVW        #DUTY, TC7H ; NEW DUTY CYCLE THAT TC7 WAITS FOR.
+            ;CLR         TFLG2    ;Reset the overflow flag
             RTS
 
 ;-------------------------------------------------------------------------------
@@ -264,7 +240,8 @@ MTR_CONST   CLR         TFLG2    ;Reset the overflow flag
 MTR_DEC     LDD         #DUTY     ;Get the current Duty cycle and add 2B to it to
             SUBD        #STEP     ;decrease from 20% to 5% over five seconds
             STD         DUTY
-            CLR         TFLG2     ;Reset the overflow flag
+            MOVW        #DUTY, TC7H ; NEW DUTY CYCLES THAT TC7 WILL ACTIVATE ON.
+            ;CLR         TFLG2     ;Reset the overflow flag
             RTS
 
             END
