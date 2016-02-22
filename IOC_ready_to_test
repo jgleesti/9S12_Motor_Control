@@ -42,8 +42,10 @@ TC2H        EQU         $0054   ; WILL USE TC2/TC3 TO TURN CH 2,3 TO LOGIC LOW, 
 TC2L        EQU         $0055   ;   THE FRC ROLLS OVER. ?
 TC3H        EQU         $0056   ; -THESE REGISTERS CAN EITHER LATCH THE VALUE OF THE FRC,-
 TC3L        EQU         $0057   ; -OR BE USED TO TRIGGER AN OC EVENT WHEN FRC REACHES THIS VALUE!- :)
-TC7H        EQU         $005E   ; WILL USE TC7 TO TURN CH 2,3 TO LOGIC HIGH, AFTER
+TC7H        EQU         $005E   ; WILL USE TC7 TO TURN CH 2,3 TO LOGIC LOW, AFTER
 TC7L        EQU         $005F   ;   THE FRC COUNTS TO NUMBER STORED HERE.
+
+PACTL       EQU         $0060   ; PULSE ACCUMULATOR CONTROL, BITS [3:2] ARE CLCK SRC; 00 MEANS "USE PRESCALAR CLOCK"
 
 ; ---- VALUES TO USE ----
 CR:         EQU         $0D     ;ASCII Return character
@@ -69,10 +71,12 @@ TCTL4_IN    EQU         $05     ; Initialize IC0 and IC1 to rising edge
 ;TIE_MSK     EQU         $0F     ; ENABLES CHANNELS 0 - 3 TO CAUSE INTERRUPTS.
 IC_EN       EQU         $01     ; Enable IC0, !(IC1) interrupt. ONLY NEED ONE PIN.
 T1_MSK      EQU         $80     ; TSCR1 MASK, ENABLES TIMER.
-IOCHMASK    EQU         $0C     ; SETTING CH 2/3 TO OC, 0/1 TO IC.
+TIOS_732    EQU         $0C     ; SETTING CH 2/3/7 TO OC, 0/1 TO IC. ------------- experimental.
 CLR_FLG1    EQU         $FF     ; WRITING THIS TO THE TFLG1 REGISTER WILL CLEAR ALL THE FLAGS THAT WE'LL BE USING.
 TC2_MSK     EQU         $0000   ; WHEN THE FRC EQUALS THIS VALUE (I.E. ON EVERY ROLLOVER),
 TC3_MSK     EQU         $0000   ;    CH 2,3 WILL BOTH BE SET TO VALUES SPECIFIED IN TCTL2 (OFF).
+
+PACTL_MSK   EQU         $00     ;TELLS OUR TIMER SYSTEM TO USE THE PRESCALAR CLOCK VALUES. -NECESSARY?
 
 DEBUG       FCC         'Debug' ;A string to put to the screen for debug
             DB          CR,LF,0 ;purposes
@@ -132,15 +136,18 @@ RUNNING     BRA         RUNNING         ; Is this right? We're just letting it r
 ;-------------------------------------------------------------------------------
 TIMERINIT   CLR         TIE                 ;Disable channel interrupts.
             MOVB        #TSCR2_IN, TSCR2    ;DISABLE OVF INTERRUPTS, PRESCALAR = 8.
+            MOVB        #PACTL_MSK, PACTL   ;ALL BITS TO 0, WHICH ALSO MEANS TIMER PRESCALAR SYSTEM WILL BE USED.
+            MOVB        #TCTL2_ON, TCTL2    ;Set OC2 and OC3 to HIGH ON-COMPARE. (WHEN FRC == $0000)
             MOVB        #TCTL4_IN, TCTL4    ;Set IC0 and IC1 to rising edge
             MOVW        #TC2_MSK, TC2H       ; ON ROLL-OVER, OC2 WILL GO HIGH.
             MOVW        #TC3_MSK, TC3H        ; SAME WITH OC3.
-	    MOVB        #TCTL2_ON, TCTL2    ;Set OC2 and OC3 to HIGH ON-COMPARE. (ON OVERFLOW)
+            ;MOVB        #TIOS_IN, TIOS      ;Set pins 0,1 to IC and 2,3 to OC
+            MOVB        #TIOS_732, TIOS     ; DOES TC7 NEED TO BE SET TO OC FOR OC7 SYSTEM TO WORK?
             MOVB        #OC7M_MSK, OC7M     ;SET OC2,OC3 TO OUTPUT TO PORT T 2,3.
             MOVB        #OC7D_MSK, OC7D     ;LOGIC TO WRITE OUT TO PORT T 2,3 A LOW SIGNAL. (0000 0000)
-            MOVB        #TIOS_IN, TIOS      ;Set pins 0,1 to IC and 2,3 to OC
-            MOVW        #IC_INT, $3E6E      ;Set vector for IC0, with DBUG12
+            MOVW        #IC0_INT, $3E6E      ;Set vector for IC0, with DBUG12
                                             ;interrupt vector map address. -TC0
+            MOVW        #IC1_INT, $3E6C     ; INTERRUPT VECTOR FOR IC1 
             ; THE ON-OVF ISR MAY NOT BE NECESSARY, SINCE WE CAN DO WHAT IT DOES ON-RISING-EDGE ISR.
             ;MOVW        #ON-OVF, $3E5E      ; RAM-ADDRESS THAT CORRESPONDS TO IRQ VECTOR IN EPROM.
             ;MOVW        #TC7_INT, ;$3E60     ; ON TC7 INTERRUPT, WILL JUMP TO THIS ISR
@@ -151,18 +158,23 @@ TIMERINIT   CLR         TIE                 ;Disable channel interrupts.
             MOVW        #DUTY, TC7H         ; WHEN FRC COUNTS UP TO 'DUTY', ACTION!
             MOVB        #TEN, TSCR1         ;Enable timer system with TEN bit
             CLI
-            MOVB         #$05, TIE  ; THIS WILL ENABLE INTERRUPTS FROM IC0 AND OC2
+            MOVB         #$03, TIE  ; THIS WILL ENABLE INTERRUPTS FROM IC0/IC1
 	    ;MOVB        #IC_EN, TIE         ;Enable IC0 interrupts
             
             RTS
 
 
 ;-------------------------------------------------------------------------------
-; IC_INT subroutine: The ISR for an IC event
+; IC0_INT subroutine: The ISR for an IC event on ch0 (rising edge)
 ;-------------------------------------------------------------------------------
-IC_INT      LDAA         #$FF ;TFLG1          ;Clear the IC0 and IC1 Flags
-            ;ORD        #$01           ; CHANGED FROM 03 TO 01, ONLY USING IC0
+IC0_INT     ;LDAA        #$FF         ;Clear all Flags
+            ;LDAB        #$FF
+            LDAA        TFLG1
+            LDAB        TFLG2
+            ORA         #$FF           ; JUST CLEAR ALL THE BITS.
+            ORB         #$80           ; TOF FLAG IS BIT [7].
             STAA        TFLG1
+            STAB        TFLG2
             LDAA        SEC_TEN        ;Check the ten's spot to see if we are
             CMPA        #$02           ;in the first ten seconds. If we aren't
             BNE         DCL            ;then we have to be decelerating
@@ -187,6 +199,22 @@ IS_SEC      JSR         PRINT          ;Call the print subroutine to print out
             RTI                         ;the number of seconds and return from
                                        ;the interrupt
 
+;-------------------------------------------------------------------------------
+; IC1_INT subroutine: The ISR for an IC event on ch1 (falling edge)
+;       Doing this because maybe some flags are being reset once signal goes low?
+;       this ISR is triggered after OC7 makes OC2/OC3 go low.
+;-------------------------------------------------------------------------------                                       
+IC1_INT     ;LDAA        #$FF         ;Clear all Flags
+            ;LDAB        #$FF
+            LDAA        TFLG1
+            LDAB        TFLG2
+            ORA         #$FF           ; JUST CLEAR ALL THE BITS.
+            ORB         #$80           ; TOF FLAG IS BIT [7].
+            STAA        TFLG1
+            STAB        TFLG2
+                
+            RTI
+                                       
 ;-------------------------------------------------------------------------------
 ; PRINT subroutine: Prints the values to the computer monitor
 ;-------------------------------------------------------------------------------
@@ -219,9 +247,9 @@ GO          RTS
 ;                     this subroutine is called it increases the motor duty
 ;                     cycle by a specified amount.
 ;-------------------------------------------------------------------------------
-MTR_ACC     LDD         #TC7H ;#DUTY     ;Get the current Duty cycle and add 2B to it to
+MTR_ACC     LDD         #TC7H    ; SHOULD THIS INCLUDE THE '#'?  ;Get the current Duty cycle and add 2B to it to
             ADDD        #STEP    ;increase from 5% to 20% over five seconds
-            STD         TC7H ; DUTY
+            STD         TC7H 
             ;MOVW        #DUTY, TC7H ; NEW DUTY CYCLE THAT TC7 WAITS FOR.
             ;CLR         TFLG2    ;Reset the overflow flag
             RTS
